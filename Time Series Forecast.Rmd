@@ -1,0 +1,218 @@
+---
+title: "Practice Problem : Time Series Analysis"
+author: "Akkash K N R"
+output: html_notebook
+---
+
+Congratulations on your new job! This time you are helping out Unicorn Investors with your data hacking skills. They are considering making an investment in a new form of transportation - JetRail. JetRail uses Jet propulsion technology to run rails and move people at a high speed! While JetRail has mastered the technology and they hold the patent for their product, the investment would only make sense, if they can get more than 1 Million monthly users with in next 18 months.
+ 
+You need to help Unicorn ventures with the decision. They usually invest in B2C start-ups less than 4 years old looking for pre-series A funding. In order to help Unicorn Ventures in their decision, you need to forecast the traffic on JetRail for the next 7 months. You are provided with traffic data of JetRail since inception in the test file.
+
+Evaluation Metric:
+
+Root Mean Squre Error (RMSE) is the evaluation metric for this contest
+
+Note: Public and private split is 20:80 where first 44 days in public and next 169 days in private
+
+Link https://datahack.analyticsvidhya.com/contest/practice-problem-time-series-2/
+
+
+### Load Library
+```{r}
+library(forecast)
+library(xts)
+library(h2o)
+library(keras)
+library(ggplot2)
+library(quantmod)
+library(zoo)
+library(mxnet)
+library(lubridate)
+library(data.table)
+library(caret)
+library(xgboost)
+```
+
+
+
+### Load Dataset
+
+```{r}
+train <- read.csv('train.csv')
+test <- read.csv('test.csv')
+```
+
+Lets explore the training Dataset
+```{r}
+summary(train)
+str(train)
+```
+
+Lets create a copy of the dataset
+```{r}
+ntrain <- train
+ntest <- test
+```
+
+Convert the DateTime from string to datetime
+```{r}
+ntrain$Datetime <- as.POSIXct(ntrain$Datetime ,format="%d-%m-%Y %H:%M")
+ntest$Datetime <- as.POSIXct(ntest$Datetime ,format="%d-%m-%Y %H:%M")
+```
+
+```{r}
+ntrain$istrain <- 1; ntest$istrain <- 0; ntest$Count <- NA
+```
+
+
+Generally a Time Series consist of 3 components:- Seasonality,Trend and Irreducable(Random) Error
+
+In the below plot we can clearly understand the trend and seasonality of the dataset
+```{r}
+ndata <- ts(ntrain[,3],frequency = 24)
+decomp <- decompose(ndata,type="additive")
+```
+
+
+```{r, fig.width=25, fig.height=15}
+plot(decomp)
+```
+
+
+### Time Series Models
+
+#### Implementing Holt's Winter Model
+
+It is also know as three parameter smoothing technique. Level, Seasonality and Trend
+
+$$
+\begin{aligned}
+ L_t &= \alpha(D_t/S_{t-s})+(1-\alpha)(L_{t-1}+T_{t-1}) \ &- (1) \\ 
+ T_{t} &= \beta(L_t-L_{t-1}) +(1-\beta)T_{t-1}\ &- (2) \\
+ S_{t} &= \gamma(D_t/L_{t}) +(1-\gamma)S_{t-s}\ &- (3) \\
+ F_{t+m} &= (L_t+mT_{t})*S_{t+m-s} \ &-(4) \\
+\end{aligned}
+$$
+Where L is Level, D is Preicted value, S is Seasonality, T is trend and m is the window size(how many periods ahead). Alpha, Beta and Gamma are coefficient parameters for Level, Trend and Seasonality. 
+
+We need to change the alpha, beta, gamma value to attain the best score.
+
+```{r}
+pred_Holt <- HoltWinters(ndata)
+pred_Holt
+print(pred_Holt)
+```
+
+```{r}
+plot(pred_Holt)
+```
+
+#### Implementing Forecast Exponential Smoothening
+
+Exponential Smoothening is suitable for forecasting data with no trend or seasonal pattern.
+
+$$
+\begin{aligned}
+ F_{t+1} &= \alpha*D_t+(1-\alpha)F_t \\
+\end{aligned}
+$$
+F(t+1) is the future forecast, alpha is coefficient parameter Dt is the output at time t, F(t) is the mean forecast. of time "t"
+
+```{r}
+#ets
+pred_ets <- ets(ndata)
+pred_ets
+```
+
+```{r}
+plot(forecast(pred_ets))
+```
+
+#### Implementing Auto ARIMA
+
+ARIMA is a "Auto Regression Integration with Moving Average". ARIMA(p,d,q), where "p" is the order of auto regression, "q" is the order of moving average and "d" is first differencing involved.
+
+```{r}
+#ARIMA
+pred_ar <- auto.arima(diff(ndata))
+pred_ar
+```
+
+#### Implementing STL
+
+Also known as "Seasonal & Trend decomposition using Loess" is a type od decomposition, where Loess is a method for estimating nonlinear relationship.
+
+
+```{r}
+#STL
+pred_STL <- stlm(ndata,modelfunction = ar ,s.window = 24)
+```
+
+Now lets predict the future...
+
+```{r}
+fcst_Holt <- forecast(pred_Holt,h=5112)
+
+fcst_ets <- forecast(pred_ets,h=5112)
+
+fcst_ar <- forecast(pred_ar,h=5112)
+
+fcst_stl <- forecast(pred_STL,h=5112)
+```
+
+Plot the prediction
+```{r}
+plot(fcst_Holt)
+```
+```{r}
+plot(fcst_ets)
+```
+```{r}
+plot(fcst_ar)
+```
+```{r}
+plot(fcst_stl)
+```
+
+Of all the models ETS gave the best results in the public test split so far.
+
+Now lets implement more advance models.
+
+
+
+#### Implementing Neural Network,
+
+Artificial Neural Network are used to find the nonlinear relationship. 
+
+http://neuralnetworksanddeeplearning.com/chap1.html
+
+$$
+\begin{aligned}
+ N_j &= b_j+\sum_{j=1}^{n}w_{i,j}x_i \\ 
+\end{aligned}
+$$
+
+```{r}
+nnet <- nnetar(diff(ndata))
+```
+
+
+```{r}
+plot(forecast(nnet))
+```
+
+```{r}
+fcst_nnte <- forecast(nnet, h= 5112)
+```
+
+```{r}
+plot(fcst_nnte)
+```
+
+
+```{r}
+submission <- data.frame('ID'=test$ID,'Count'=fcst_Holt)
+colnames(submission) <- c('ID','Count')
+filename <- paste('ak_hw_',format(Sys.time(),"%Y%m%d%H%M%s"),sep = '_')
+write.csv(submission,paste0(filename,'.csv',collapse = ''),row.names = FALSE)
+```
